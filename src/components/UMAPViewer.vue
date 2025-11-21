@@ -1,39 +1,92 @@
 <template>
   <div class="umap-viewer">
     <div class="file-upload-section">
-      <div
-        class="file-drop-zone"
-        :class="{ 'drag-over': isDragOver }"
-        @drop="handleDrop"
-        @dragover.prevent="isDragOver = true"
-        @dragleave="isDragOver = false"
-        @dragend="isDragOver = false"
-      >
-        <input
-          ref="fileInput"
-          type="file"
-          accept=".csv,.tsv,.txt,.json"
-          @change="handleFileSelect"
-          style="display: none"
-        />
-        <div class="drop-zone-content">
-          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-            <polyline points="17 8 12 3 7 8"></polyline>
-            <line x1="12" y1="3" x2="12" y2="15"></line>
-          </svg>
-          <p class="drop-zone-text">
-            <strong>Drop your UMAP file here</strong> or
-            <button @click="openFileDialog" class="btn-link">browse</button>
-          </p>
-          <p class="drop-zone-hint">Supports CSV, TSV, and JSON files</p>
+      <div class="upload-grid">
+        <div class="upload-item">
+          <h3>UMAP File</h3>
+          <div
+            class="file-drop-zone"
+            :class="{ 'drag-over': isDragOverUMAP, 'has-file': umapFile }"
+            @drop="handleDropUMAP"
+            @dragover.prevent="isDragOverUMAP = true"
+            @dragleave="isDragOverUMAP = false"
+            @dragend="isDragOverUMAP = false"
+          >
+            <input
+              ref="umapFileInput"
+              type="file"
+              accept=".csv,.tsv,.txt,.json"
+              @change="handleUMAPFileSelect"
+              style="display: none"
+            />
+            <div class="drop-zone-content">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="17 8 12 3 7 8"></polyline>
+                <line x1="12" y1="3" x2="12" y2="15"></line>
+              </svg>
+              <p class="drop-zone-text" v-if="!umapFile">
+                <strong>Drop your UMAP file here</strong> or
+                <button @click="openUMAPFileDialog" class="btn-link">browse</button>
+              </p>
+              <p class="drop-zone-text" v-else>
+                <strong>{{ umapFile.name }}</strong>
+                <button @click="clearUMAPFile" class="btn-link">remove</button>
+              </p>
+              <p class="drop-zone-hint">Supports CSV, TSV, and JSON files</p>
+            </div>
+          </div>
         </div>
+        <div class="upload-item">
+          <h3>Metadata File (Optional)</h3>
+          <div
+            class="file-drop-zone"
+            :class="{ 'drag-over': isDragOverMetadata, 'has-file': metadataFile }"
+            @drop="handleDropMetadata"
+            @dragover.prevent="isDragOverMetadata = true"
+            @dragleave="isDragOverMetadata = false"
+            @dragend="isDragOverMetadata = false"
+          >
+            <input
+              ref="metadataFileInput"
+              type="file"
+              accept=".csv,.tsv,.txt,.json"
+              @change="handleMetadataFileSelect"
+              style="display: none"
+            />
+            <div class="drop-zone-content">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="17 8 12 3 7 8"></polyline>
+                <line x1="12" y1="3" x2="12" y2="15"></line>
+              </svg>
+              <p class="drop-zone-text" v-if="!metadataFile">
+                <strong>Drop metadata file here</strong> or
+                <button @click="openMetadataFileDialog" class="btn-link">browse</button>
+              </p>
+              <p class="drop-zone-text" v-else>
+                <strong>{{ metadataFile.name }}</strong>
+                <button @click="clearMetadataFile" class="btn-link">remove</button>
+              </p>
+              <p class="drop-zone-hint">Will be mapped using first column</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="load-button-container">
+        <button 
+          @click="loadViewer" 
+          class="btn-load"
+          :disabled="!umapFile || isLoading"
+        >
+          {{ isLoading ? 'Loading...' : 'Load Viewer' }}
+        </button>
       </div>
       <div v-if="statusMessage" class="status-message" :class="statusType">
         {{ statusMessage }}
       </div>
     </div>
-    <div class="controls">
+    <div class="controls" v-if="chartData.length > 0">
       <div class="control-group">
         <label for="colorBy">Color by:</label>
         <select id="colorBy" v-model="colorBy" @change="updateColors">
@@ -71,12 +124,12 @@
       <button @click="resetZoom" class="btn-reset">Reset Zoom</button>
       <button @click="generateSampleData" class="btn-sample">Generate Sample Data</button>
     </div>
-    <div class="chart-container" ref="chartContainer">
+    <div class="chart-container" ref="chartContainer" v-if="chartData.length > 0">
       <svg ref="svg" class="umap-svg" v-show="!useCanvas"></svg>
       <canvas ref="canvas" class="umap-canvas" v-show="useCanvas" @mousemove="handleCanvasMouseMove" @mouseleave="handleCanvasMouseLeave"></canvas>
       <div class="tooltip" ref="tooltip"></div>
     </div>
-    <div class="legend" v-if="colorBy !== 'none' && legendItems.length > 0">
+    <div class="legend" v-if="chartData.length > 0 && colorBy !== 'none' && legendItems.length > 0">
       <h4>Legend</h4>
       <div class="legend-items">
         <div
@@ -118,15 +171,22 @@ const svg = ref(null)
 const canvas = ref(null)
 const chartContainer = ref(null)
 const tooltip = ref(null)
-const fileInput = ref(null)
+const umapFileInput = ref(null)
+const metadataFileInput = ref(null)
 const colorBy = ref('none')
 const pointSize = ref(3)
 const opacity = ref(0.6)
-const isDragOver = ref(false)
+const isDragOverUMAP = ref(false)
+const isDragOverMetadata = ref(false)
 const statusMessage = ref('')
 const statusType = ref('info')
 const useCanvas = ref(false)
 const maxSvgPoints = 5000 // Switch to canvas if more points
+const umapFile = ref(null)
+const metadataFile = ref(null)
+const umapData = ref([])
+const metadataData = ref([])
+const isLoading = ref(false)
 
 let chartData = ref([])
 let availableCategories = ref([])
@@ -164,7 +224,7 @@ watch(() => props.data, (newData) => {
 onMounted(() => {
   if (props.data.length === 0) {
     // Don't auto-generate sample data, wait for user to load file
-    statusMessage.value = 'Load a UMAP file to get started, or click "Generate Sample Data" to see a demo'
+    statusMessage.value = 'Upload a UMAP file and optionally a metadata file, then click "Load Viewer"'
     statusType.value = 'info'
   } else {
     chartData.value = props.data
@@ -803,97 +863,239 @@ function resetZoom() {
   }
 }
 
-function openFileDialog() {
-  fileInput.value?.click()
+function openUMAPFileDialog() {
+  umapFileInput.value?.click()
 }
 
-function handleFileSelect(event) {
+function openMetadataFileDialog() {
+  metadataFileInput.value?.click()
+}
+
+function handleUMAPFileSelect(event) {
   const file = event.target.files[0]
   if (file) {
-    loadFile(file)
+    umapFile.value = file
+    statusMessage.value = `UMAP file selected: ${file.name}`
+    statusType.value = 'info'
   }
 }
 
-function handleDrop(event) {
+function handleMetadataFileSelect(event) {
+  const file = event.target.files[0]
+  if (file) {
+    metadataFile.value = file
+    statusMessage.value = `Metadata file selected: ${file.name}`
+    statusType.value = 'info'
+  }
+}
+
+function handleDropUMAP(event) {
   event.preventDefault()
-  isDragOver.value = false
+  isDragOverUMAP.value = false
   
   const file = event.dataTransfer.files[0]
   if (file) {
-    loadFile(file)
+    umapFile.value = file
+    statusMessage.value = `UMAP file selected: ${file.name}`
+    statusType.value = 'info'
   }
 }
 
-function loadFile(file) {
-  const fileName = file.name.toLowerCase()
-  const reader = new FileReader()
+function handleDropMetadata(event) {
+  event.preventDefault()
+  isDragOverMetadata.value = false
   
-  statusMessage.value = `Loading ${file.name}...`
-  statusType.value = 'info'
-  
-  reader.onload = (e) => {
-    try {
-      let data = null
-      
-      if (fileName.endsWith('.json')) {
-        data = JSON.parse(e.target.result)
-        if (!Array.isArray(data)) {
-          throw new Error('JSON file must contain an array of objects')
-        }
-      } else {
-        // CSV or TSV
-        const text = e.target.result
-        const delimiter = fileName.endsWith('.tsv') || fileName.endsWith('.txt') ? '\t' : ','
-        data = parseDelimitedFile(text, delimiter)
-      }
-      
-      // Normalize data format
-      const normalizedData = normalizeData(data)
-      
-      if (normalizedData.length === 0) {
-        throw new Error('No valid data points found in file')
-      }
-      
-      chartData.value = normalizedData
-      extractCategories()
-      colorBy.value = 'none' // Reset color selection
-      
-      chartData.value = normalizedData
-      extractCategories()
-      colorBy.value = 'none' // Reset color selection
-      
-      statusMessage.value = `Loaded ${normalizedData.length} data points successfully!`
-      statusType.value = 'success'
-      
-      // Clear status message after 3 seconds
-      setTimeout(() => {
-        statusMessage.value = ''
-      }, 3000)
-      
-      // Wait for DOM to update, then render
-      nextTick(() => {
-        // Additional wait to ensure canvas/SVG elements are in DOM
-        setTimeout(() => {
-          renderChart()
-        }, 50)
-      })
-    } catch (error) {
-      statusMessage.value = `Error loading file: ${error.message}`
-      statusType.value = 'error'
-      console.error('Error loading file:', error)
-    }
+  const file = event.dataTransfer.files[0]
+  if (file) {
+    metadataFile.value = file
+    statusMessage.value = `Metadata file selected: ${file.name}`
+    statusType.value = 'info'
   }
-  
-  reader.onerror = () => {
-    statusMessage.value = 'Error reading file'
+}
+
+function clearUMAPFile() {
+  umapFile.value = null
+  umapData.value = []
+  chartData.value = []
+  if (umapFileInput.value) {
+    umapFileInput.value.value = ''
+  }
+}
+
+function clearMetadataFile() {
+  metadataFile.value = null
+  metadataData.value = []
+  if (metadataFileInput.value) {
+    metadataFileInput.value.value = ''
+  }
+}
+
+async function loadViewer() {
+  if (!umapFile.value) {
+    statusMessage.value = 'Please upload a UMAP file first'
     statusType.value = 'error'
+    return
+  }
+
+  isLoading.value = true
+  statusMessage.value = 'Loading files...'
+  statusType.value = 'info'
+
+  try {
+    // Load UMAP file
+    await loadUMAPFile(umapFile.value)
+    
+    // Load metadata file if provided
+    if (metadataFile.value) {
+      await loadMetadataFile(metadataFile.value)
+      // Map metadata to UMAP data
+      mapMetadataToUMAP()
+    }
+    
+    // Normalize and prepare data
+    const normalizedData = normalizeData(umapData.value)
+    
+    if (normalizedData.length === 0) {
+      throw new Error('No valid data points found in UMAP file')
+    }
+    
+    chartData.value = normalizedData
+    extractCategories()
+    colorBy.value = 'none' // Reset color selection
+    
+    statusMessage.value = `Loaded ${normalizedData.length} data points successfully!`
+    statusType.value = 'success'
+    
+    // Clear status message after 3 seconds
+    setTimeout(() => {
+      statusMessage.value = ''
+    }, 3000)
+    
+    // Wait for DOM to update, then render
+    nextTick(() => {
+      setTimeout(() => {
+        renderChart()
+      }, 50)
+    })
+  } catch (error) {
+    statusMessage.value = `Error loading files: ${error.message}`
+    statusType.value = 'error'
+    console.error('Error loading files:', error)
+  } finally {
+    isLoading.value = false
+  }
+}
+
+function loadUMAPFile(file) {
+  return new Promise((resolve, reject) => {
+    const fileName = file.name.toLowerCase()
+    const reader = new FileReader()
+    
+    reader.onload = (e) => {
+      try {
+        let data = null
+        
+        if (fileName.endsWith('.json')) {
+          data = JSON.parse(e.target.result)
+          if (!Array.isArray(data)) {
+            throw new Error('JSON file must contain an array of objects')
+          }
+        } else {
+          const text = e.target.result
+          const delimiter = fileName.endsWith('.tsv') || fileName.endsWith('.txt') ? '\t' : ','
+          data = parseDelimitedFile(text, delimiter)
+        }
+        
+        umapData.value = data
+        resolve()
+      } catch (error) {
+        reject(error)
+      }
+    }
+    
+    reader.onerror = () => {
+      reject(new Error('Error reading UMAP file'))
+    }
+    
+    reader.readAsText(file)
+  })
+}
+
+function loadMetadataFile(file) {
+  return new Promise((resolve, reject) => {
+    const fileName = file.name.toLowerCase()
+    const reader = new FileReader()
+    
+    reader.onload = (e) => {
+      try {
+        let data = null
+        
+        if (fileName.endsWith('.json')) {
+          data = JSON.parse(e.target.result)
+          if (!Array.isArray(data)) {
+            throw new Error('JSON file must contain an array of objects')
+          }
+        } else {
+          const text = e.target.result
+          const delimiter = fileName.endsWith('.tsv') || fileName.endsWith('.txt') ? '\t' : ','
+          data = parseDelimitedFile(text, delimiter)
+        }
+        
+        metadataData.value = data
+        resolve()
+      } catch (error) {
+        reject(error)
+      }
+    }
+    
+    reader.onerror = () => {
+      reject(new Error('Error reading metadata file'))
+    }
+    
+    reader.readAsText(file)
+  })
+}
+
+function mapMetadataToUMAP() {
+  if (metadataData.value.length === 0 || umapData.value.length === 0) {
+    return
   }
   
-  if (fileName.endsWith('.json')) {
-    reader.readAsText(file)
-  } else {
-    reader.readAsText(file)
-  }
+  // Get first column name from metadata
+  const metadataFirstRow = metadataData.value[0]
+  const metadataKeys = Object.keys(metadataFirstRow)
+  const metadataIdKey = metadataKeys[0] // First column
+  
+  // Get first column name from UMAP data
+  const umapFirstRow = umapData.value[0]
+  const umapKeys = Object.keys(umapFirstRow)
+  const umapIdKey = umapKeys[0] // First column
+  
+  // Create a map of metadata by ID
+  const metadataMap = new Map()
+  metadataData.value.forEach(row => {
+    const id = String(row[metadataIdKey])
+    if (id) {
+      metadataMap.set(id, row)
+    }
+  })
+  
+  // Merge metadata into UMAP data
+  umapData.value.forEach(umapRow => {
+    const id = String(umapRow[umapIdKey])
+    if (id && metadataMap.has(id)) {
+      const metadataRow = metadataMap.get(id)
+      // Add all metadata columns except the ID column
+      Object.keys(metadataRow).forEach(key => {
+        if (key !== metadataIdKey) {
+          umapRow[key] = metadataRow[key]
+        }
+      })
+    }
+  })
+  
+  statusMessage.value = `Mapped ${metadataMap.size} metadata entries to UMAP data`
+  statusType.value = 'success'
 }
 
 function parseDelimitedFile(text, delimiter) {
@@ -1260,20 +1462,43 @@ function normalizeData(data) {
   margin-bottom: 20px;
 }
 
+.upload-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  margin-bottom: 20px;
+}
+
+.upload-item h3 {
+  margin: 0 0 10px 0;
+  font-size: 16px;
+  color: #333;
+  font-weight: 600;
+}
+
 .file-drop-zone {
   border: 2px dashed #ccc;
   border-radius: 8px;
-  padding: 40px;
+  padding: 30px;
   text-align: center;
   background: #fafafa;
   transition: all 0.3s ease;
   cursor: pointer;
+  min-height: 150px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .file-drop-zone:hover,
 .file-drop-zone.drag-over {
   border-color: #007bff;
   background: #f0f7ff;
+}
+
+.file-drop-zone.has-file {
+  border-color: #28a745;
+  background: #f0fff4;
 }
 
 .drop-zone-content {
@@ -1338,5 +1563,42 @@ function normalizeData(data) {
   background: #f8d7da;
   color: #721c24;
   border: 1px solid #f5c6cb;
+}
+
+.load-button-container {
+  display: flex;
+  justify-content: center;
+  margin: 20px 0;
+}
+
+.btn-load {
+  padding: 12px 32px;
+  background: #28a745;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: 600;
+  transition: all 0.2s;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.btn-load:hover:not(:disabled) {
+  background: #218838;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+  transform: translateY(-1px);
+}
+
+.btn-load:disabled {
+  background: #6c757d;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+@media (max-width: 768px) {
+  .upload-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>
